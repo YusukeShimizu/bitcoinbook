@@ -1,3 +1,18 @@
+## 日本語訳について
+最新をフォローするために、日本語訳を行っています
+翻訳は、ChatGPTがベースとなっています。以下の手順で行ってます
+
+1. [chatgpt-md-translator](https://github.com/smikitky/chatgpt-md-translator)をinstall
+2. サンプル設定ファイルをコピーし、`OPENAI_API_KEY` を設定
+```bash
+mv .chatgpt-md-translator.sample .chatgpt-md-translator
+```
+1. 以下のコマンドを実行して、すべての Markdown ファイルを翻訳
+```bash
+chatgpt-md-translator ch01_intro.adoc
+```
+
+
 # Mastering Bitcoin
 
 Mastering Bitcoin is a technical book that explains what Bitcoin is and how it works.

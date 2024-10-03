@@ -1,0 +1,802 @@
+[[ch03_bitcoin_client]]
+== Bitcoin Core: リファレンス実装
+
+人々が貴重な商品やサービスと引き換えにお金を受け取るのは、そのお金を後で使えると信じているからです。偽造されたり予期せず価値が下がったりしたお金は後で使えないかもしれないので、ビットコインを受け取るすべての人は、受け取ったビットコインの整合性を確認する強い動機があります。ビットコインシステムは、ローカルコンピュータ上で動作するソフトウェアが偽造や価値の下落、その他の重要な問題を完全に防ぐことができるように設計されています。この機能を提供するソフトウェアは、システム内のすべてのルールに対してすべての確認済みビットコイン取引を検証するため、_完全検証ノード_ と呼ばれます。完全検証ノード、略して _フルノード_ は、ビットコインの仕組みやネットワークで現在何が起こっているかを理解するためのツールやデータも提供することがあります。
+
+この章では、ビットコインネットワークの始まりからほとんどのフルノード運営者が使用している実装である Bitcoin Core をインストールします。その後、ノードからのブロック、トランザクション、その他のデータを検査します。これらのデータは、強力な存在がそれを権威あるものとして指定したからではなく、あなたのノードが独立してそれを検証したために権威あるものです。この本の残りの部分を通じて、ブロックチェーンとネットワークに関連するデータを作成し、調べるために Bitcoin Core を使い続けます。
+
+=== ビットコインから Bitcoin Core へ
+
+ビットコインは _オープンソース_ プロジェクトであり、ソースコードはオープン (MIT) ライセンスの下で提供されており、どんな目的にも無料でダウンロードして使用できます。オープンソースであるだけでなく、ビットコインはオープンなボランティアのコミュニティによって開発されています。最初は、そのコミュニティは ((("Nakamoto, Satoshi")))サトシ・ナカモトだけで構成されていました。2023年までに、ビットコインのソースコードには1,000人以上の貢献者がいて、約12人の開発者がほぼフルタイムでコードに取り組み、さらに数十人がパートタイムで関わっています。誰でもコードに貢献できます―あなたも含めて！
+
+ビットコインはサトシ・ナカモトによって作成されましたが、ソフトウェアはホワイトペーパー（<<satoshi_whitepaper>> に再現されています）の公開前にほぼ完成していました。サトシは、論文を公開する前に実装が機能することを確認したかったのです。その最初の実装は、単に「ビットコイン」として知られていましたが、大幅に修正され、改善されました。それは他の実装と区別するために _Bitcoin Core_ として知られるようになりました。Bitcoin Core はビットコインシステムの _リファレンス実装_ であり、各技術部分がどのように実装されるべきかの参考を提供します。Bitcoin Core は、ウォレット、トランザクションおよびブロックの検証エンジン、ブロック構築のためのツール、そしてビットコインのピアツーピア通信のすべての現代的な部分を含む、ビットコインのすべての側面を実装しています。
+
+<<bitcoin_core_architecture>> は Bitcoin Core のアーキテクチャを示しています。
+
+[[bitcoin_core_architecture]]
+.Bitcoin Core アーキテクチャ（出典：Eric Lombrozo）。
+image::images/mbc3_0301.png["Bitcoin Core Architecture"]
+
+Bitcoin Core はシステムの多くの主要部分のリファレンス実装として機能しますが、ビットコインのホワイトペーパーはシステムのいくつかの初期部分を説明しています。2011年以降のシステムの主要部分のほとんどは、一連の https://oreil.ly/BCXAQ[Bitcoin Improvement Proposals (BIPs)] に文書化されています。この本全体を通じて、BIP 仕様をその番号で参照します。例えば、BIP9 はビットコインのいくつかの主要なアップグレードに使用されるメカニズムを説明しています。
+
+### Bitcoin Development Environment
+
+開発者であれば、ビットコインアプリケーションを作成するためのすべてのツール、ライブラリ、およびサポートソフトウェアを備えた開発環境を設定したいと思うでしょう。この高度に技術的な章では、そのプロセスをステップバイステップで説明します。もし内容が難しすぎると感じた場合（実際に開発環境を設定していない場合）、次の章に進んでください。次の章は技術的ではありません。
+
+[[compiling_core]]
+=== ソースコードから Bitcoin Core をコンパイルする
+
+Bitcoin Core のソースコードは、アーカイブとしてダウンロードするか、GitHub からソースリポジトリをクローンすることで入手できます。https://oreil.ly/hN9g1[Bitcoin Core ダウンロードページ]で最新バージョンを選択し、ソースコードの圧縮アーカイブをダウンロードしてください。あるいは、Git コマンドラインを使用して、https://oreil.ly/BdOwl[GitHub Bitcoin ページ]からソースコードのローカルコピーを作成することもできます。
+
+[TIP]
+====
+この章の多くの例では、オペレーティングシステムのコマンドラインインターフェース（「シェル」とも呼ばれます）を「ターミナル」アプリケーションを通じて使用します。シェルはプロンプトを表示し、あなたがコマンドを入力すると、シェルはテキストと次のコマンドのための新しいプロンプトを返します。プロンプトはシステムによって異なるかもしれませんが、以下の例では +$+ 記号で示されています。例では、+$+ 記号の後に続くテキストを見たら、+$+ 記号を入力せずにその後のコマンドを入力し、Enter を押してコマンドを実行してください。例の中で、各コマンドの下の行はそのコマンドに対するオペレーティングシステムの応答です。次の +$+ プレフィックスを見たら、それが新しいコマンドであることを示しており、プロセスを繰り返す必要があります。
+====
+
+ここでは、+git+ コマンドを使用してソースコードのローカルコピー（「クローン」）を作成します：
+
+----
+$ git clone https://github.com/bitcoin/bitcoin.git
+Cloning into 'bitcoin'...
+remote: Enumerating objects: 245912, done.
+remote: Counting objects: 100% (3/3), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 245912 (delta 1), reused 2 (delta 1), pack-reused 245909
+Receiving objects: 100% (245912/245912), 217.74 MiB | 13.05 MiB/s, done.
+Resolving deltas: 100% (175649/175649), done.
+----
+
+[TIP]
+====
+Git は最も広く使用されている分散バージョン管理システムであり、ソフトウェア開発者のツールキットには欠かせないものです。+git+ コマンドや Git のグラフィカルユーザーインターフェースをオペレーティングシステムにインストールする必要があるかもしれません。
+====
+
+Git のクローン操作が完了すると、ディレクトリ _bitcoin_ にソースコードリポジトリの完全なローカルコピーが作成されます。+cd+ コマンドを使ってこのディレクトリに移動します。
+
+----
+$ cd bitcoin
+----
+
+==== Bitcoin Core リリースの選択
+
+デフォルトでは、ローカルコピーは最新のコードと同期されますが、これは不安定またはベータ版の Bitcoin である可能性があります。コードをコンパイルする前に、リリース _タグ_ をチェックアウトして特定のバージョンを選択します。これにより、キーワードタグで識別されるコードリポジトリの特定のスナップショットとローカルコピーが同期されます。タグは開発者によって、バージョン番号でコードの特定のリリースを示すために使用されます。まず、利用可能なタグを見つけるために +git tag+ コマンドを使用します。
+
+----
+$ git tag
+v0.1.5
+v0.1.6test1
+v0.10.0
+...
+v0.11.2
+v0.11.2rc1
+v0.12.0rc1
+v0.12.0rc2
+...
+----
+
+タグのリストは、Bitcoin のすべてのリリースバージョンを示しています。慣例として、テスト用に意図された _リリース候補_ には「rc」というサフィックスが付いています。本番システムで実行できる安定版リリースにはサフィックスがありません。前述のリストから、執筆時点での最新バージョンリリースである v24.0.1 を選択します。このバージョンとローカルコードを同期するには、+git checkout+ コマンドを使用します。
+
+----
+$ git checkout v24.0.1
+Note: switching to 'v24.0.1'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+HEAD is now at b3f866a8d Merge bitcoin/bitcoin#26647: 24.0.1 final changes
+----
+
+指定したバージョンが「チェックアウト」されていることを確認するには、次のコマンドを実行します：+git status+：
+
+```
+HEAD detached at v24.0.1
+nothing to commit, working tree clean
+```
+
+==== Bitcoin Core ビルドの設定
+
+ソースコードにはドキュメントが含まれており、いくつかのファイルで見つけることができます。_bitcoin_ ディレクトリにある _README.md_ にある主なドキュメントを確認してください。この章では、Linux（Unix系システム）で +bitcoind+ として知られる Bitcoin Core デーモン（サーバ）をビルドします。プラットフォームで +bitcoind+ コマンドラインクライアントをコンパイルするための手順は、_doc/build-unix.md_ を読んで確認してください。代替の手順は _doc_ ディレクトリにあります。例えば、Windows の手順は _build-windows.md_ にあります。この記事執筆時点では、Android、FreeBSD、NetBSD、OpenBSD、macOS (OSX)、Unix、Windows の手順が利用可能です。
+
+ビルドの前提条件を注意深く確認してください。これらは Bitcoin をコンパイルする前にシステムに存在していなければならないライブラリです。これらの前提条件が欠けていると、ビルドプロセスはエラーで失敗します。もし前提条件を見落として失敗した場合は、それをインストールしてからビルドプロセスを再開できます。前提条件がインストールされていると仮定して、_autogen.sh_ スクリプトを使用して一連のビルドスクリプトを生成することでビルドプロセスを開始します。
+
+```
+----
+$ ./autogen.sh
+libtoolize: putting auxiliary files in AC_CONFIG_AUX_DIR, 'build-aux'.
+libtoolize: copying file 'build-aux/ltmain.sh'
+libtoolize: putting macros in AC_CONFIG_MACRO_DIRS, 'build-aux/m4'.
+ ...
+configure.ac:58: installing 'build-aux/missing'
+src/Makefile.am: installing 'build-aux/depcomp'
+parallel-tests: installing 'build-aux/test-driver'
+----
+
+_autogen.sh_ スクリプトは、システムを調査して正しい設定を見つけ出し、コードをコンパイルするために必要なすべてのライブラリが揃っていることを確認するための一連の自動構成スクリプトを作成します。これらの中で最も重要なのは、ビルドプロセスをカスタマイズするためのさまざまなオプションを提供する +configure+ スクリプトです。さまざまなオプションを見るには、+--help+ フラグを使用してください：
+
+----
+$ ./configure --help
+`configure' configures Bitcoin Core 24.0.1 to adapt to many kinds of systems.
+
+Usage: ./configure [OPTION]... [VAR=VALUE]...
+
+...
+Optional Features:
+  --disable-option-checking  ignore unrecognized --enable/--with options
+  --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
+  --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-silent-rules   less verbose build output (undo: "make V=1")
+  --disable-silent-rules  verbose build output (undo: "make V=0")
+...
+----
+
++configure+ スクリプトは、+--enable-FEATURE+ および +--disable-FEATURE+ フラグを使用して +bitcoind+ の特定の機能を有効または無効にすることができます。ここで pass:[<span class="keep-together"><code>FEATURE</code></span>] は、ヘルプ出力にリストされている機能名に置き換えられます。この章では、すべてのデフォルト機能を使用して +bitcoind+ クライアントをビルドします。構成フラグは使用しませんが、クライアントの一部であるオプション機能を理解するためにそれらを確認してください。学術環境にいる場合、コンピュータラボの制限により、アプリケーションをホームディレクトリにインストールする必要があるかもしれません（例：+--prefix=$HOME+ を使用）。
+
+ここに、+configure+ スクリプトのデフォルトの動作を上書きする便利なオプションをいくつか示します：
+
+++++
+<dl>
+<dt><code>--prefix=$HOME</code></dt>
+<dd><p>これは、生成された実行可能ファイルのデフォルトのインストール場所（<em>/usr/local/</em>）を上書きします。<code>$HOME</code> を使用してすべてをホームディレクトリに置くか、別のパスを指定してください。</p></dd>
+```
+
+
+<dt><code>--disable-wallet</code></dt>
+<dd><p>これはリファレンスウォレットの実装を無効にするために使用します。</p></dd>
+
+<dt><code>--with-incompatible-bdb</code></dt>
+<dd><p>ウォレットをビルドする場合、互換性のないバージョンの Berkeley DB ライブラリの使用を許可します。</p></dd>
+
+<dt><code>--with-gui=no</code></dt>
+<dd><p>Qt ライブラリを必要とするグラフィカルユーザインターフェースをビルドしません。これにより、サーバーとコマンドラインの Bitcoin Core のみがビルドされます。</p></dd>
+</dl>
+++++
+
+次に、+configure+ スクリプトを実行して、必要なライブラリを自動的に検出し、システムに合わせたカスタマイズビルドスクリプトを作成します：
+
+----
+$ ./configure
+checking for pkg-config... /usr/bin/pkg-config
+checking pkg-config is at least version 0.9.0... yes
+checking build system type... x86_64-pc-linux-gnu
+checking host system type... x86_64-pc-linux-gnu
+checking for a BSD-compatible install... /usr/bin/install -c
+...
+[many pages of configuration tests follow]
+...
+----
+
+すべてがうまくいけば、+configure+ コマンドはカスタマイズされたビルドスクリプトを作成し、+bitcoind+ をコンパイルできるようにします。ライブラリが不足している場合やエラーがある場合、+configure+ コマンドはエラーで終了し、ビルドスクリプトを作成しません。エラーが発生した場合、最も可能性が高いのはライブラリが不足しているか、互換性がないことです。ビルドドキュメントを再確認し、不足している前提条件をインストールしてください。その後、+configure+ を再度実行し、エラーが解決するか確認してください。
+
+==== Bitcoin Core 実行ファイルのビルド
+
+次に、ソースコードをコンパイルします。このプロセスは、CPU の速度と利用可能なメモリに応じて、完了までに最大で 1 時間かかることがあります。エラーが発生したり、コンパイルプロセスが中断された場合は、+make+ を再度入力することでいつでも再開できます。実行可能なアプリケーションのコンパイルを開始するには、*+make+* と入力してください。
+
+----
+$ make
+Making all in src
+  CXX      bitcoind-bitcoind.o
+  CXX      libbitcoin_node_a-addrdb.o
+  CXX      libbitcoin_node_a-addrman.o
+  CXX      libbitcoin_node_a-banman.o
+  CXX      libbitcoin_node_a-blockencodings.o
+  CXX      libbitcoin_node_a-blockfilter.o
+[... many more compilation messages follow ...]
+----
+
+複数の CPU を持つ高速なシステムでは、並列コンパイルジョブの数を設定したいかもしれません。例えば、+make -j 2+ を使用すると、利用可能な場合に 2 つのコアを使用します。すべてがうまくいけば、Bitcoin Core がコンパイルされます。リンクされたライブラリが明らかに壊れていないことを確認するために、+make check+ でユニットテストスイートを実行するべきです。最終ステップは、+make install+ コマンドを使用して、さまざまな実行ファイルをシステムにインストールすることです。このステップには管理者権限が必要なため、ユーザパスワードを求められることがあります：
+
+----
+$ make check && sudo make install
+Password:
+Making install in src
+ ../build-aux/install-sh -c -d '/usr/local/lib'
+libtool: install: /usr/bin/install -c bitcoind /usr/local/bin/bitcoind
+libtool: install: /usr/bin/install -c bitcoin-cli /usr/local/bin/bitcoin-cli
+libtool: install: /usr/bin/install -c bitcoin-tx /usr/local/bin/bitcoin-tx
+...
+----
+
++bitcoind+ のデフォルトインストールは _/usr/local/bin_ に配置されます。Bitcoin Core が正しくインストールされていることを確認するには、システムに実行ファイルのパスを尋ねます。((("Bitcoin Core", "compiling from source code", startref="bitcoin-core-compile")))((("compiling Bitcoin Core from source code", startref="compile-bitcoin-core")))((("source code, compiling Bitcoin Core", startref="source-code-compile")))次のようにします：
+
+----
+$ which bitcoind
+/usr/local/bin/bitcoind
+
+$ which bitcoin-cli
+/usr/local/bin/bitcoin-cli
+----
+
+=== Bitcoin Core ノードの実行
+
+Bitcoin の ((("Bitcoin Core", "nodes", "running", id="bitcoin-core-nodes-running")))((("nodes", "running", id="nodes-running")))((("running nodes", id="running-nodes")))ピアツーピアネットワークは、主に個人や Bitcoin サービスを提供する企業によって運営されているネットワーク「ノード」で構成されています。Bitcoin ノードを運営する人々は、Bitcoin ブロックチェーンの直接的かつ権威あるビューを持ち、すべての使用可能なビットコインのローカルコピーを自分のシステムで独立して検証しています。ノードを運営することで、トランザクションを検証するために第三者に依存する必要がなくなります。さらに、ウォレットに受け取るトランザクションを完全に検証するために Bitcoin ノードを使用することで、Bitcoin ネットワークに貢献し、より強固にする手助けをします。
+
+ノードを運用するには、最初に 500 GB 以上のデータをダウンロードして処理する必要があり、さらに毎日約 400 MB のビットコイン取引を処理する必要があります。これらの数値は 2023 年のもので、時間とともに増加する可能性があります。ノードをシャットダウンしたり、インターネットから数日間切断されたりすると、ノードは見逃したデータをダウンロードする必要があります。たとえば、Bitcoin Core を 10 日間閉じた場合、次回起動時に約 4 GB をダウンロードする必要があります。
+
+すべての取引をインデックス化し、ブロックチェーンの完全なコピーを保持するかどうかによっては、多くのディスクスペースも必要になるかもしれません。Bitcoin Core を数年間運用する予定がある場合は、少なくとも 1 TB が必要です。デフォルトでは、ビットコインノードは他のノード（「ピア」と呼ばれる）に取引とブロックを送信し、アップロードのインターネット帯域幅を消費します。インターネット接続が制限されている、データキャップが低い、またはメーター制（ギガビットごとに課金される）の場合、その接続でビットコインノードを運用するべきではないか、帯域幅を制限する方法で運用するべきです（<<bitcoincorenode_config>> を参照）。代わりに、https://oreil.ly/cIwf3[Blockstream Satellite] のような無料の衛星データプロバイダなどの代替ネットワークにノードを接続することもできます。
+
+[TIP]
+====
+Bitcoin Core はデフォルトで、2009 年の開始以来ビットコインネットワークで確認されたほぼすべての取引を含むブロックチェーンの完全なコピーを保持します。このデータセットは数百ギガバイトのサイズがあり、CPU とインターネット接続の速度に応じて、数時間または数日にわたって段階的にダウンロードされます。Bitcoin Core は、ブロックチェーンの完全なデータセットがダウンロードされるまで、取引を処理したり、アカウント残高を更新したりすることができません。初期同期を完了するための十分なディスクスペース、帯域幅、および時間を確保してください。Bitcoin Core を設定して古いブロックを破棄することでブロックチェーンのサイズを削減することができますが、それでもデータセット全体をダウンロードします。
+====
+
+これらのリソース要件にもかかわらず、何千人もの人々がビットコインノードを運用しています。中には、トランプのパックサイズの $35 USD のコンピュータである Raspberry Pi のようなシステムで運用している人もいます。
+
+
+[role="less_space pagebreak-before"]
+なぜノードを運用したいのでしょうか。以下は最も一般的な理由です：
+
+- 受け取るトランザクションを検証するために第三者に依存したくない。
+
+- どのトランザクションが自分のウォレットに属するかを第三者に開示したくない。
+
+- Bitcoin ソフトウェアを開発しており、ネットワークとブロックチェーンへのプログラム可能な (API) アクセスのために Bitcoin ノードに依存する必要がある。
+
+- Bitcoin のコンセンサスルールに従ってトランザクションを検証する必要があるアプリケーションを構築している。通常、Bitcoin ソフトウェア会社は複数のノードを運用します。
+
+- Bitcoin をサポートしたい。ウォレットに受け取るトランザクションを検証するために使用するノードを運用することで、ネットワークをより強固にします。
+
+この本を読んでいて、強力なセキュリティ、優れたプライバシー、または Bitcoin ソフトウェアの開発に興味があるなら、自分のノードを運用するべきです。
+
+[[bitcoincorenode_config]]
+=== Bitcoin Core ノードの設定
+
+Bitcoin Core は、起動時にデータディレクトリ内の設定ファイルを探します。このセクションでは、さまざまな設定オプションを検討し、設定ファイルをセットアップします。設定ファイルを見つけるには、ターミナルで +bitcoind -printtoconsole+ を実行し、最初の数行を確認します：
+
+----
+$ bitcoind -printtoconsole
+2023-01-28T03:21:42Z Bitcoin Core version v24.0.1
+2023-01-28T03:21:42Z Using the 'x86_shani(1way,2way)' SHA256 implementation
+2023-01-28T03:21:42Z Using RdSeed as an additional entropy source
+2023-01-28T03:21:42Z Using RdRand as an additional entropy source
+2023-01-28T03:21:42Z Default data directory /home/harding/.bitcoin
+2023-01-28T03:21:42Z Using data directory /home/harding/.bitcoin
+2023-01-28T03:21:42Z Config file: /home/harding/.bitcoin/bitcoin.conf
+...
+[a lot more debug output]
+...
+----
+
+
+Ctrl-C を押してノードをシャットダウンし、設定ファイルの場所を確認してください。通常、設定ファイルはユーザのホームディレクトリ内の _.bitcoin_ データディレクトリにあります。お好みのエディタで設定ファイルを開いてください。
+
+Bitcoin Core には、ネットワークノードの動作、ブロックチェーンの保存、その他多くの操作の側面を変更する 100 以上の設定オプションがあります。これらのオプションの一覧を見るには、+bitcoind --help+ を実行します：
+
+----
+$ bitcoind --help
+Bitcoin Core version v24.0.1
+
+Usage:  bitcoind [options]                     Start Bitcoin Core
+
+Options:
+
+  -?
+       Print this help message and exit
+
+  -alertnotify=<cmd>
+       Execute command when an alert is raised (%s in cmd is replaced by
+       message)
+...
+[many more options]
+----
+
+ここに、設定ファイルで設定できる、または +bitcoind+ のコマンドラインパラメータとして設定できる最も重要なオプションのいくつかを示します：
+
+++alertnotify++:: このノードの所有者に緊急アラートを送信するために指定されたコマンドまたはスクリプトを実行します。
+
+++conf++:: 設定ファイルの代替場所です。これは +bitcoind+ のコマンドラインパラメータとしてのみ意味があります。参照する設定ファイル内には含められません。
+
+++datadir++:: すべてのブロックチェーンデータを格納するディレクトリとファイルシステムを選択します。デフォルトでは、ホームディレクトリの _.bitcoin_ サブディレクトリです。設定によっては、執筆時点で約 10 GB からほぼ 1 TB を使用する可能性があり、最大サイズは毎年数百ギガバイト増加すると予想されます。
+
+++prune++:: 古いブロックを削除することで、ブロックチェーンのディスクスペース要件をこのメガバイト数に削減します。完全なブロックチェーンを収容できないリソース制約のあるノードで使用してください。システムの他の部分は現在プルーニングできない他のディスクスペースを使用するため、+datadir+ オプションで言及されている最低限のスペースは依然として必要です。
+
+++txindex++:: すべてのトランザクションのインデックスを維持します。これにより、そのトランザクションを含むブロックがプルーニングされていない限り、トランザクション ID によって任意のトランザクションをプログラムで取得できます。
+
+[role="less_space pagebreak-before"]
+++dbcache++:: UTXO キャッシュのサイズです。デフォルトは 450 メビバイト (MiB) です。高性能なハードウェアではこのサイズを増やしてディスクへの読み書きを減らし、低性能なハードウェアではメモリを節約するためにサイズを減らし、その代わりにディスクをより頻繁に使用します。
+
+++blocksonly++:: ピアから未確認トランザクションを中継する代わりに、確認済みトランザクションのブロックのみを受け入れることで、帯域幅の使用を最小限に抑えます。
+
+++maxmempool++:: トランザクションメモリプールをこのメガバイト数に制限します。メモリが制約されたノードでメモリ使用量を減らすために使用します。
+
+[[txindex]]
+.トランザクションデータベースインデックスと txindex オプション
+****
+デフォルトでは、Bitcoin Core はユーザのウォレットに関連するトランザクション_のみ_を含むデータベースを構築します。+getrawtransaction+ のようなコマンドで_任意の_トランザクションにアクセスできるようにするには、Bitcoin Core を完全なトランザクションインデックスを構築するように設定する必要があります。これは +txindex+ オプションで実現できます。Bitcoin Core の設定ファイルに +txindex=1+ を設定してください。最初にこのオプションを設定せず、後で完全なインデックスを設定する場合、インデックスの再構築を待つ必要があります。
+****
+
+<<full_index_node>> は、前述のオプションを完全にインデックスされたノードと組み合わせて、ビットコインアプリケーションの API バックエンドとして実行する方法を示しています。
+
+[[full_index_node]]
+.完全インデックスノードのサンプル設定
+====
+----
+alertnotify=myemailscript.sh "Alert: %s"
+datadir=/lotsofspace/bitcoin
+txindex=1
+----
+====
+
+<<constrained_resources>> は、小型サーバーで実行されるリソース制約のあるノードを示しています。
+
+[[constrained_resources]]
+.リソース制約のあるシステムのサンプル設定
+====
+----
+alertnotify=myemailscript.sh "Alert: %s"
+blocksonly=1
+prune=5000
+dbcache=150
+maxmempool=150
+----
+====
+
+設定ファイルを編集し、ニーズに最も合ったオプションを設定した後、この設定で +bitcoind+ をテストできます。Bitcoin Core を +printtoconsole+ オプションで実行し、コンソールに出力しながらフォアグラウンドで実行します。
+
+----
+$ bitcoind -printtoconsole
+2023-01-28T03:43:39Z Bitcoin Core version v24.0.1
+2023-01-28T03:43:39Z Using the 'x86_shani(1way,2way)' SHA256 implementation
+2023-01-28T03:43:39Z Using RdSeed as an additional entropy source
+2023-01-28T03:43:39Z Using RdRand as an additional entropy source
+2023-01-28T03:43:39Z Default data directory /home/harding/.bitcoin
+2023-01-28T03:43:39Z Using data directory /lotsofspace/bitcoin
+2023-01-28T03:43:39Z Config file: /home/harding/.bitcoin/bitcoin.conf
+2023-01-28T03:43:39Z Config file arg: [main] blockfilterindex="1"
+2023-01-28T03:43:39Z Config file arg: [main] maxuploadtarget="1000"
+2023-01-28T03:43:39Z Config file arg: [main] txindex="1"
+2023-01-28T03:43:39Z Setting file arg: wallet = ["msig0"]
+2023-01-28T03:43:39Z Command-line arg: printtoconsole=""
+2023-01-28T03:43:39Z Using at most 125 automatic connections 
+2023-01-28T03:43:39Z Using 16 MiB out of 16 MiB requested for signature cache
+2023-01-28T03:43:39Z Using 16 MiB out of 16 MiB requested for script execution 
+2023-01-28T03:43:39Z Script verification uses 3 additional threads
+2023-01-28T03:43:39Z scheduler thread start
+2023-01-28T03:43:39Z [http] creating work queue of depth 16
+2023-01-28T03:43:39Z Using random cookie authentication.
+2023-01-28T03:43:39Z Generated RPC cookie /lotsofspace/bitcoin/.cookie
+2023-01-28T03:43:39Z [http] starting 4 worker threads
+2023-01-28T03:43:39Z Using wallet directory /lotsofspace/bitcoin/wallets
+2023-01-28T03:43:39Z init message: Verifying wallet(s)…
+2023-01-28T03:43:39Z Using BerkeleyDB version Berkeley DB 4.8.30
+2023-01-28T03:43:39Z Using /16 prefix for IP bucketing
+2023-01-28T03:43:39Z init message: Loading P2P addresses…
+2023-01-28T03:43:39Z Loaded 63866 addresses from peers.dat  114ms
+[... more startup messages ...]
+----
+
+Ctrl-C を押すとプロセスを中断できます。設定が正しく読み込まれ、期待通りに動作していることを確認したら中断してください。
+
+Bitcoin Core をバックグラウンドでプロセスとして実行するには、+daemon+ オプションを使って +bitcoind -daemon+ として起動します。
+
+Bitcoin ノードの進行状況と実行状態を監視するには、デーモンモードで起動し、その後 +bitcoin-cli getblockchaininfo+ コマンドを使用します：
+
+```
+$ bitcoin-cli getblockchaininfo
+```
+
+[source,json]
+```
+{
+  "chain": "main",
+  "blocks": 0,
+  "headers": 83999,
+  "bestblockhash": "[...]19d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+  "difficulty": 1,
+  "time": 1673379796,
+  "mediantime": 1231006505,
+  "verificationprogress": 3.783041623201835e-09,
+  "initialblockdownload": true,
+  "chainwork": "[...]000000000000000000000000000000000000000000000100010001",
+  "size_on_disk": 89087,
+  "pruned": false,
+  "warnings": ""
+}
+```
+
+これは、ブロックチェーンの高さが 0 ブロックで 83,999 ヘッダーのノードを示しています。ノードは最初にピアからブロックヘッダーを取得し、最も多くのプルーフ・オブ・ワークを持つブロックチェーンを見つけ、その後、完全なブロックをダウンロードしながら検証を続けます。
+
+選択した設定オプションに満足したら、Bitcoin Core をオペレーティングシステムのスタートアップスクリプトに追加して、継続的に実行し、オペレーティングシステムが再起動したときに再起動するようにしてください。Bitcoin Core のソースディレクトリの _contrib/init_ に、さまざまなオペレーティングシステム用のスタートアップスクリプトの例と、どのシステムがどのスクリプトを使用するかを示す _README.md_ ファイルがあります。
+
+### Bitcoin Core API
+
+Bitcoin Core は、JSON-RPC インターフェースを実装しており、コマンドラインヘルパー +bitcoin-cli+ を使用してアクセスすることもできます。コマンドラインを使用すると、API を介してプログラム的に利用可能な機能を対話的に試すことができます。まず、+help+ コマンドを呼び出して、利用可能な Bitcoin Core RPC コマンドのリストを確認します。
+
+[[bitcoind_commands]]
+
+----
+$ bitcoin-cli help
++== Blockchain ==
+getbestblockhash
+getblock "blockhash" ( verbosity )
+getblockchaininfo
+...
+walletpassphrase "passphrase" timeout
+walletpassphrasechange "oldpassphrase" "newpassphrase"
+walletprocesspsbt "psbt" ( sign "sighashtype" bip32derivs finalize )
+----
+
+これらの各コマンドは、いくつかのパラメータを取ることができます。追加のヘルプ、詳細な説明、およびパラメータに関する情報を得るには、+help+ の後にコマンド名を追加してください。例えば、+getblockhash+ RPC コマンドのヘルプを見るには：
+
+----
+$ bitcoin-cli help getblockhash
+getblockhash height
+
+指定された高さのベストブロックチェーン内のブロックのハッシュを返します。
+
+引数：
+1. height    (numeric, required) 高さのインデックス
+
+結果：
+"hex"    (string) ブロックハッシュ
+
+例：
+> bitcoin-cli getblockhash 1000
+> curl --user myusername --data-binary '{"jsonrpc": "1.0", "id": "curltest",
+  "method": "getblockhash", 
+  "params": [1000]}' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+----
+
+ヘルプ情報の最後には、+bitcoin-cli+ ヘルパーまたは HTTP クライアント +curl+ を使用した RPC コマンドの 2 つの例が表示されます。これらの例は、コマンドをどのように呼び出すかを示しています。最初の例をコピーして結果を確認してください：
+
+----
+$ bitcoin-cli getblockhash 1000
+00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09
+----
+
+結果はブロックハッシュであり、詳細は次の章で説明します。しかし今のところ、このコマンドはあなたのシステムでも同じ結果を返すはずです。これは、あなたの Bitcoin Core ノードが稼働しており、コマンドを受け付け、ブロック 1,000 に関する情報を返すことができることを示しています。
+
+次のセクションでは、非常に便利な RPC コマンドとその期待される出力を示します。
+
+==== Bitcoin Core のステータス情報を取得する
+
+Bitcoin Core は、JSON-RPC インターフェースを通じて異なるモジュールのステータスレポートを提供します。最も重要なコマンドには、+getblockchaininfo+、+getmempoo&#x2060;l&#x200b;info+、+getnetworkinfo+、および +getwalletinfo+ が含まれます。
+
+Bitcoin の +getblockchaininfo+ RPC コマンドは以前に紹介されました。+getnetworkinfo+ コマンドは、Bitcoin ネットワークノードのステータスに関する基本情報を表示します。+bitcoin-cli+ を使って実行します。
+
+----
+$ bitcoin-cli getnetworkinfo
+----
+[source,json]
+----
+{
+  "version": 240001,
+  "subversion": "/Satoshi:24.0.1/",
+  "protocolversion": 70016,
+  "localservices": "0000000000000409",
+  "localservicesnames": [
+    "NETWORK",
+    "WITNESS",
+    "NETWORK_LIMITED"
+  ],
+  "localrelay": true,
+  "timeoffset": -1,
+  "networkactive": true,
+  "connections": 10,
+  "connections_in": 0,
+  "connections_out": 10,
+  "networks": [
+    "...detailed information about all networks..."
+  ],
+  "relayfee": 0.00001000,
+  "incrementalfee": 0.00001000,
+  "localaddresses": [
+  ],
+  "warnings": ""
+}
+----
+
+データは JavaScript Object Notation (JSON) 形式で返されます。これはすべてのプログラミング言語で簡単に「消費」できる形式ですが、人間にも非常に読みやすいです。このデータの中には、Bitcoin Core ソフトウェアと Bitcoin プロトコルのバージョン番号が含まれています。現在の接続数や Bitcoin ネットワークに関するさまざまな情報、このノードに関連する設定も確認できます。
+
+[TIP]
+====
++bitcoind+ が他の Bitcoin ノードからブロックをダウンロードし、それらのブロック内のすべてのトランザクションを検証するのに、現在のブロックチェーンの高さに追いつくまでには、しばらく時間がかかります。この記事執筆時点では、ほぼ 10 億件のトランザクションがあります。進捗状況を確認するには、+getblockchaininfo+ を使用して既知のブロック数を確認できます。この章の残りの例では、少なくともブロック 775,072 に到達していることを前提としています。Bitcoin トランザクションのセキュリティはブロックに依存しているため、以下の例の情報は、ノードが持っているブロック数に応じて若干変わることがあります。
+====
+
+[[exploring_and_decoding_transactions]]
+==== トランザクションの探索とデコード
+
+<<spending_bitcoin>> で、アリスはボブの店で購入を行いました。彼女のトランザクションはブロックチェーンに記録されました。API を使用して、そのトランザクションを取得し、トランザクション ID (txid) をパラメータとして渡して調べてみましょう。
+
+[[alice_tx_serialized]]
+.アリスのシリアライズされたトランザクション
+----
+$ bitcoin-cli getrawtransaction 466200308696215bbc949d5141a49a41\
+38ecdfdfaa2a8029c1f9bcecd1f96177
+
+01000000000101eb3ae38f27191aa5f3850dc9cad00492b88b72404f9da13569
+8679268041c54a0100000000ffffffff02204e0000000000002251203b41daba
+4c9ace578369740f15e5ec880c28279ee7f51b07dca69c7061e07068f8240100
+000000001600147752c165ea7be772b2c0acb7f4d6047ae6f4768e0141cf5efe
+2d8ef13ed0af21d4f4cb82422d6252d70324f6f4576b727b7d918e521c00b51b
+e739df2f899c49dc267c0ad280aca6dab0d2fa2b42a45182fc83e81713010000
+0000
+----
+
+[TIP]
+====
+トランザクション ID (txid) は権威あるものではありません。ブロックチェーンに txid が存在しないからといって、そのトランザクションが処理されなかったわけではありません。これは「トランザクションの可鍛性」として知られています。トランザクションはブロックで確認される前に変更され、その txid が変わる可能性があります。トランザクションがブロックに含まれた後は、そのブロックが最良のブロックチェーンから削除されるブロックチェーンの再編成がない限り、txid は変更されません。トランザクションが複数回確認された後の再編成はまれです。
+====
+
+コマンド +getrawtransaction+ は、16進数表記のシリアライズされたトランザクションを返します。それをデコードするには、+decoderawtransaction+ コマンドを使用し、16進データをパラメータとして渡します。+getrawtransaction+ によって返された 16 進数をコピーし、+decoderawtransaction+ のパラメータとして貼り付けることができます。
+
+++++
+<pre data-type="programlisting">
+$ bitcoin-cli decoderawtransaction 01000000000101eb3ae38f27191aa5f3850dc9cad0\
+0492b88b72404f9da135698679268041c54a0100000000ffffffff02204e00000000000022512\
+03b41daba4c9ace578369740f15e5ec880c28279ee7f51b07dca69c7061e07068f82401000000\
+00001600147752c165ea7be772b2c0acb7f4d6047ae6f4768e0141cf5efe2d8ef13ed0af21d4f\
+4cb82422d6252d70324f6f4576b727b7d918e521c00b51be739df2f899c49dc267c0ad280aca6\
+dab0d2fa2b42a45182fc83e817130100000000
+</pre>
+++++
+
+++++
+<pre data-type="programlisting" data-code-language="json">
+{
+  "txid": "466200308696215bbc949d5141a49a4138ecdfdfaa2a8029c1f9bcecd1f96177",
+  "hash": "f7cdbc7cf8b910d35cc69962e791138624e4eae7901010a6da4c02e7d238cdac",
+  "version": 1,
+  "size": 194,
+  "vsize": 143,
+  "weight": 569,
+  "locktime": 0,
+  "vin": [
+    {
+      "txid": "4ac541802679866935a19d4f40728bb89204d0cac90d85f3a51a19...aeb",
+      "vout": 1,
+      "scriptSig": {
+        "asm": "",
+        "hex": ""
+      },
+      "txinwitness": [
+        "cf5efe2d8ef13ed0af21d4f4cb82422d6252d70324f6f4576b727b7d918e5...301"
+      ],
+      "sequence": 4294967295
+    }
+  ],
+  "vout": [
+    {
+      "value": 0.00020000,
+      "n": 0,
+      "scriptPubKey": {
+        "asm": "1 3b41daba4c9ace578369740f15e5ec880c28279ee7f51b07dca...068",
+        "desc": "rawtr(3b41daba4c9ace578369740f15e5ec880c28279ee7f51b...6ev",
+        "hex": "51203b41daba4c9ace578369740f15e5ec880c28279ee7f51b07d...068",
+        "address": "bc1p8dqa4wjvnt890qmfws83te0v3qxzsfu7ul63kp7u56w8q...5qn",
+        "type": "witness_v1_taproot"
+      }
+    },
+    {
+      "value": 0.00075000,
+      "n": 1,
+      "scriptPubKey": {
+        "asm": "0 7752c165ea7be772b2c0acb7f4d6047ae6f4768e",
+        "desc": "addr(bc1qwafvze0200nh9vkq4jmlf4sy0tn0ga5w0zpkpg)#qq404gts",
+        "hex": "00147752c165ea7be772b2c0acb7f4d6047ae6f4768e",
+        "address": "bc1qwafvze0200nh9vkq4jmlf4sy0tn0ga5w0zpkpg",
+        "type": "witness_v0_keyhash"
+      }
+    }
+  ]
+}
+</pre>
+++++
+
+このトランザクションのデコードは、トランザクションのすべての構成要素を示しています。これには、トランザクションの入力と出力が含まれます。この場合、トランザクションは 1 つの入力を使用し、2 つの出力を生成しています。このトランザクションへの入力は、以前に確認されたトランザクションの出力です（入力の +txid+ として示されています）。2 つの出力は、ボブへの支払いとアリスへのお釣りに対応しています。
+
+ブロックチェーンをさらに探索するために、同じコマンド（例： [.keep-together]#+getrawtransaction+）を使用して、このトランザクション内の +txid+ によって参照される前のトランザクションを調べることができます。トランザクションからトランザクションへとジャンプしながら、コインが次の所有者に送信される際のトランザクションのチェーンをたどることができます。
+
+==== Exploring Blocks
+
+ブロックの探索は、トランザクションの探索と似ています。ただし、ブロックはブロックの _高さ_ またはブロックの _ハッシュ_ によって参照できます。まず、ブロックの高さでブロックを見つけてみましょう。
++getblockhash+ コマンドを使用します。このコマンドはブロックの高さをパラメータとして受け取り、そのブロックの _ヘッダーハッシュ_ を返します：
+
+++++
+<pre data-type="programlisting">
+$ bitcoin-cli getblockhash 123456
+0000000000002917ed80650c6174aac8dfc46f5fe36480aaef682ff6cd83c3ca
+</pre>
+++++
+
+選択したブロックのヘッダーハッシュがわかったので、そのブロックをクエリできます。ブロックハッシュをパラメータとして +getblock+ コマンドを使用します：
+
+++++
+<pre data-type="programlisting">
+$ bitcoin-cli getblock 0000000000002917ed80650c6174aac8dfc46f5fe36480aaef682f\
+f6cd83c3ca
+</pre>
+++++
+
+++++
+<pre data-type="programlisting" data-code-language="json">
+{
+  "hash": "0000000000002917ed80650c6174aac8dfc46f5fe36480aaef682ff6cd83c3ca",
+  "confirmations": 651742,
+  "height": 123456,
+  "version": 1,
+  "versionHex": "00000001",
+  "merkleroot": "0e60651a9934e8f0decd1c[...]48fca0cd1c84a21ddfde95033762d86c",
+  "time": 1305200806,
+  "mediantime": 1305197900,
+  "nonce": 2436437219,
+  "bits": "1a6a93b3",
+  "difficulty": 157416.4018436489,
+  "chainwork": "[...]00000000000000000000000000000000000000541788211ac227bc",
+  "nTx": 13,
+  "previousblockhash": "[...]60bc96a44724fd72daf9b92cf8ad00510b5224c6253ac40095",
+  "nextblockhash": "[...]00129f5f02be247070bf7334d3753e4ddee502780c2acaecec6d66",
+  "strippedsize": 4179,
+  "size": 4179,
+  "weight": 16716,
+  "tx": [
+    "5b75086dafeede555fc8f9a810d8b10df57c46f9f176ccc3dd8d2fa20edd685b",
+    "e3d0425ab346dd5b76f44c222a4bb5d16640a4247050ef82462ab17e229c83b4",
+    "137d247eca8b99dee58e1e9232014183a5c5a9e338001a0109df32794cdcc92e",
+    "5fd167f7b8c417e59106ef5acfe181b09d71b8353a61a55a2f01aa266af5412d",
+    "60925f1948b71f429d514ead7ae7391e0edf965bf5a60331398dae24c6964774",
+    "d4d5fc1529487527e9873256934dfb1e4cdcb39f4c0509577ca19bfad6c5d28f",
+    "7b29d65e5018c56a33652085dbb13f2df39a1a9942bfe1f7e78e97919a6bdea2",
+    "0b89e120efd0a4674c127a76ff5f7590ca304e6a064fbc51adffbd7ce3a3deef",
+    "603f2044da9656084174cfb5812feaf510f862d3addcf70cacce3dc55dab446e",
+    "9a4ed892b43a4df916a7a1213b78e83cd83f5695f635d535c94b2b65ffb144d3",
+    "dda726e3dad9504dce5098dfab5064ecd4a7650bfe854bb2606da3152b60e427",
+    "e46ea8b4d68719b65ead930f07f1f3804cb3701014f8e6d76c4bdbc390893b94",
+    "864a102aeedf53dd9b2baab4eeb898c5083fde6141113e0606b664c41fe15e1f"
+  ]
+}
+</pre>
+++++
+
++confirmations+ エントリは、このブロックの _深さ_ を示しています。つまり、このブロックの上にいくつのブロックが構築されているかを示し、このブロック内のトランザクションを変更することの難しさを示しています。+height+ は、このブロックの前にいくつのブロックがあったかを示します。ブロックのバージョン、作成された時間（マイナーによるもの）、このブロックの前にある 11 ブロックの中央値の時間（マイナーが操作しにくい時間測定）、および 3 つの異なる測定方法でのブロックのサイズ（レガシーのストリップサイズ、フルサイズ、ウェイト単位でのサイズ）を確認できます。また、セキュリティとプルーフ・オブ・ワークに使用されるいくつかのフィールド（マークルルート、ノンス、ビット、難易度、チェーンワーク）も確認できます。これらについては <<mining>> で詳しく調べます。
+
+==== Bitcoin Core のプログラムインターフェースを使用する
+
++bitcoin-cli+ ヘルパーは、Bitcoin Core API を探索し、機能をテストするのに非常に便利です。しかし、API の目的はプログラム的に機能にアクセスすることです。このセクションでは、別のプログラムから Bitcoin Core にアクセスする方法を示します。
+
+Bitcoin Core の API は JSON-RPC インターフェースです。JSON は、人間とプログラムの両方が簡単に読めるデータを提示する非常に便利な方法です。RPC はリモート [.keep-together]#プロシージャ# コールを意味し、ネットワークプロトコルを介してリモート（Bitcoin Core ノード上）のプロシージャ（関数）を呼び出すことを意味します。この場合、ネットワークプロトコルは HTTP です。
+
++bitcoin-cli+ コマンドを使用してコマンドのヘルプを取得したとき、これらの JSON-RPC コールの 1 つを構築するために、汎用性のあるコマンドライン HTTP クライアントである +curl+ を使用する例を示しました。
+
+----
+$ curl --user myusername --data-binary '{"jsonrpc": "1.0", "id":"curltest",
+  "method": "getblockchaininfo", 
+  "params": [] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+----
+
+このコマンドは、+curl+ がローカルホスト (127.0.0.1) に HTTP リクエストを送信し、デフォルトの Bitcoin RPC ポート (8332) に接続し、+text/plain+ エンコーディングを使用して +getblockchaininfo+ メソッドの +jsonrpc+ リクエストを送信することを示しています。
+
++curl+ がリクエストと共に認証情報を送信するよう求めることに気付くかもしれません。Bitcoin Core は起動時にランダムなパスワードを作成し、それをデータディレクトリ内の +.cookie+ という名前で保存します。+bitcoin-cli+ ヘルパーは、データディレクトリが指定されていればこのパスワードファイルを読み取ることができます。同様に、パスワードをコピーして +curl+ (または任意の高レベルの Bitcoin Core RPC ラッパー) に渡すこともできます。これは <<cookie_auth>> で示されています。
+
+[[cookie_auth]]
+. Bitcoin Core でのクッキー認証の使用
+====
+----
+$ cat .bitcoin/.cookie
+  __cookie__:17c9b71cef21b893e1a019f4bc071950c7942f49796ed061b274031b17b19cd0
+
+$ curl 
+  --user __cookie__:17c9b71cef21b893e1a019f4bc071950c7942f49796ed061b274031b17b19cd0 
+  --data-binary '{"jsonrpc": "1.0", "id":"curltest", 
+  "method": "getblockchaininfo", 
+  "params": [] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+{"result":{"chain":"main","blocks":799278,"headers":799278,
+"bestblockhash":"000000000000000000018387c50988ec705a95d6f765b206b6629971e6978879",
+"difficulty":53911173001054.59,"time":1689703111,"mediantime":1689701260,
+"verificationprogress":0.9999979206082515,"initialblockdownload":false,
+"chainwork":"00000000000000000000000000000000000000004f3e111bf32bcb47f9dfad5b",
+"size_on_disk":563894577967,"pruned":false,"warnings":""},"error":null,
+"id":"curltest"}
+----
+====
+
+あるいは、Bitcoin Core のソースディレクトリにある [.keep-together]#_./share/rpcauth/rpcauth.py_# で提供されているヘルパースクリプトを使用して、静的なパスワードを作成することもできます。
+
+独自のプログラムで JSON-RPC コールを実装する場合、前述の +curl+ の例に示されているように、汎用の HTTP ライブラリを使用してコールを構築することができます。
+
+しかし、ほとんどの人気のあるプログラミング言語には、Bitcoin Core API を「ラップ」して、これを非常に簡単にするライブラリがあります。私たちは +python-bitcoinlib+ ライブラリを使用して、API アクセスを簡素化します。このライブラリは Bitcoin Core プロジェクトの一部ではなく、Python ライブラリを通常インストールする方法でインストールする必要があります。これには、JSON-RPC コールを行うために使用される、稼働中の Bitcoin Core インスタンスが必要であることを覚えておいてください。
+
+<<rpc_example>> の Python スクリプトは、簡単な +getblockchaininfo+ コールを行い、Bitcoin Core から返されたデータの +block+ パラメータを出力します。
+
+[[rpc_example]]
+.Bitcoin Core の JSON-RPC API を介して +getblockchaininfo+ を実行
+====
+[source,python]
+----
+include::code/rpc_example.py[]
+----
+====
+
+これを実行すると、次の結果が得られます：
+
+----
+$ python rpc_example.py
+773973
+----
+
+これは、ローカルの Bitcoin Core ノードがブロックチェーンに持っているブロックの数を示しています。特に目を見張る結果ではありませんが、ライブラリを Bitcoin Core の JSON-RPC API への簡易インターフェースとして基本的に使用する方法を示しています。
+
+次に、+getrawtransaction+ と +decodetransaction+ コールを使用して、アリスからボブへの支払いの詳細を取得しましょう。<<rpc_transaction>> では、アリスのトランザクションを取得し、そのトランザクションの出力を一覧表示します。各出力について、受取人のアドレスと値を表示します。念のために言っておくと、アリスのトランザクションには、ボブへの支払いのための 1 つの出力と、アリスへのお釣りのための 1 つの出力がありました。
+
+[[rpc_transaction]]
+.トランザクションを取得し、その出力を反復処理
+====
+[source,python]
+----
+include::code/rpc_transaction.py[]
+----
+====
+
+このコードを実行すると、次のようになります：
+
+```
+----
+$ python rpc_transaction.py
+bc1p8dqa4wjvnt890qmfws83te0v3qxzsfu7ul63kp7u56w8qc0qwp5qv995qn 0.00020000
+bc1qwafvze0200nh9vkq4jmlf4sy0tn0ga5w0zpkpg 0.00075000
+----
+
+どちらの例も、かなり単純です。これらを実行するのにプログラムは本当に必要ありません。+bitcoin-cli+ ヘルパーを使うだけで簡単に実行できます。しかし、次の例は数百の RPC コールを必要とし、プログラムインターフェースの使用をより明確に示します。
+
+<<rpc_block>> では、最初にブロックを取得し、その中の各トランザクションをトランザクション ID を参照して取得します。次に、各トランザクションの出力を反復処理し、その値を合計します。
+
+[[rpc_block]]
+.ブロックを取得し、すべてのトランザクション出力を合計する
+====
+[source,python]
+----
+include::code/rpc_block.py[]
+----
+====
+
+このコードを実行すると、次のようになります：
+
+----
+$ python rpc_block.py
+
+Total value in block:  10322.07722534
+----
+
+この例のコードは、このブロックで取引された総額が 10,322.07722534 BTC であると計算します（25 BTC の報酬と 0.0909 BTC の手数料を含む）。ブロックハッシュまたは高さを検索して、ブロックエクスプローラサイトで報告された金額と比較してください。一部のブロックエクスプローラは、報酬と手数料を除いた総額を報告します。違いを見つけられるか確認してみてください。
+```
+
+[[alt_libraries]]
+=== Alternative Clients, Libraries, and Toolkits
+
+Bitcoin エコシステムには、多くの代替クライアント、ライブラリ、ツールキット、さらにはフルノード実装があります。これらはさまざまなプログラミング言語で実装されており、プログラマが好む言語でネイティブインターフェースを提供します。
+
+以下のセクションでは、プログラミング言語ごとにいくつかの優れたライブラリ、クライアント、およびツールキットを紹介します。
+
+==== C/C++
+https://oreil.ly/BdOwl[Bitcoin Core] :: Bitcoin のリファレンス実装 ((("C/C++ toolkits")))((("Bitcoin Core")))
+
+==== JavaScript
+https://bcoin.io[bcoin]:: モジュラーでスケーラブルなフルノード実装と API ((("JavaScript toolkits")))((("bcoin")))((("Bitcore")))
+https://bitcore.io[Bitcore] :: Bitpay によるフルノード、API、およびライブラリ
+https://oreil.ly/4iqf2[BitcoinJS] :: node.js とブラウザ向けの純粋な JavaScript Bitcoin ライブラリ
+
+==== Java
+https://bitcoinj.github.io[bitcoinj]:: Java フルノードクライアントライブラリ ((("Java toolkits")))((("bitcoinj")))
+
+==== Python
+https://oreil.ly/xn_rg[python-bitcoinlib]:: Peter Todd による Python Bitcoin ライブラリ、コンセンサスライブラリ、およびノード ((("Python toolkits")))((("python-bitcoinlib")))((("pycoin")))
+https://oreil.ly/wcpXP[pycoin]:: Richard Kiss による Python Bitcoin ライブラリ
+
+==== Go
+https://oreil.ly/h5MEI[btcd]:: Go 言語によるフルノード Bitcoin クライアント ((("Go toolkits")))((("btcd")))
+
+==== Rust
+https://oreil.ly/me6gf[rust-bitcoin]:: シリアライゼーション、パース、および API コールのための Rust Bitcoin ライブラリ ((("Rust toolkits")))((("rust-bitcoin")))
+
+==== Scala
+https://bitcoin-s.org[bitcoin-s]:: Scala での Bitcoin 実装 ((("Scala toolkits")))((("bitcoin-s")))
+
+==== C#
+https://oreil.ly/Qfjgq[NBitcoin]:: .NET フレームワーク向けの包括的な Bitcoin ライブラリ ((("C# toolkits")))((("NBitcoin")))
+
+他のさまざまなプログラミング言語でも多くのライブラリが存在し、常に新しいものが作成されています。
+
+この章の指示に従った場合、現在 Bitcoin Core が稼働しており、自分のフルノードを使用してネットワークとブロックチェーンを探索し始めているはずです。これからは、外部の権威を信頼することなく、自分が管理するコンピュータ上で自分が管理するソフトウェアを使用して、受け取ったビットコインが Bitcoin システムのすべてのルールに従っていることを独自に確認できます。次の章では、システムのルールと、ノードとウォレットがどのようにそれらを使用してお金を保護し、プライバシーを守り、支払いや受け取りを [.keep-together]#便利にするかについて学びます。#
+
+It seems like you haven't provided the Markdown content yet. Please paste the text you would like me to translate, and I'll get started on it.
